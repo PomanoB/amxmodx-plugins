@@ -118,7 +118,13 @@
 
 #include <zp50_core>
 #include <zp50_ammopacks>
+
+#define LIBRARY_ZOMBIECLASSES "zp50_class_zombie"
 #include <zp50_class_zombie>
+
+#define LIBRARY_HUMANCLASSES "zp50_class_human"
+#include <zp50_class_human>
+
 #include <zp50_class_nemesis>
 #include <zp50_class_survivor>
 
@@ -303,7 +309,6 @@ public plugin_cfg()
 	
 	SQL_QueryAndIgnore(g_SQL_Connection, "SET NAMES utf8")
 	
-	load_classes_from_file()
 	if (get_pcvar_num(g_CvarShowAdv))
 		set_task(get_pcvar_float(g_CvarAdvTime), "showAdv", _, _, _, "b")
 		
@@ -316,13 +321,36 @@ public plugin_cfg()
 	SQL_QueryAndIgnore(g_SQL_Connection, g_Query)
 }
 
+public plugin_natives()
+{
+	set_module_filter("module_filter")
+	set_native_filter("native_filter")
+}
+
+public module_filter(const module[])
+{
+	if (equal(module, LIBRARY_ZOMBIECLASSES) || equal(module, LIBRARY_HUMANCLASSES))
+		return PLUGIN_HANDLED;
+	
+	return PLUGIN_CONTINUE;
+}
+
+public native_filter(const name[], index, trap)
+{
+	if (!trap)
+		return PLUGIN_HANDLED;
+	
+	return PLUGIN_CONTINUE;
+}
+
+
 public plugin_end()
 {
 	
 	SQL_QueryAndIgnore(g_SQL_Connection, "DELETE FROM `zp_server_players`")
 	SQL_FreeHandle(g_SQL_Tuple)
 	SQL_FreeHandle(g_SQL_Connection)
-	#if defined ZP_STATS_DEBUG
+#if defined ZP_STATS_DEBUG
 	log_amx("[ZP] Stats Debug: plugin end")
 #endif
 }
@@ -759,8 +787,6 @@ public client_disconnect(id)
 
 public zp_fw_core_infect_post(id, infector)
 {
-	client_print(0, print_chat, "zp_fw_core_infect_post %d, %d, %d", id, infector, zp_class_nemesis_get(id))
-	
 	new nemesis = zp_class_nemesis_get(id)
 	if (infector && infector != id)
 	{
@@ -769,10 +795,6 @@ public zp_fw_core_infect_post(id, infector)
 		if (g_UserDBId[infector])
 		{
 			recordPlayerEvent(infector, PLAYER_INFECT)
-					
-			format(g_Query, charsmax(g_Query), "INSERT INTO `zp_class_stats` (`id`, `id_player`, `infect`) VALUES(%d, %d, 1) ON DUPLICATE KEY UPDATE `infect` = `infect` + 1", zp_class_zombie_get_next(infector), g_UserDBId[infector])
-			SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-		
 			g_Me[infector][ME_INFECT]++
 		}
 		
@@ -786,12 +808,6 @@ public zp_fw_core_infect_post(id, infector)
 	}
 	else
 		recordPlayerEvent(id, PLAYER_HAS_BEEN_NEMESIS)
-
-	if (!nemesis && g_UserDBId[id])	
-	{
-		format(g_Query, charsmax(g_Query), "INSERT INTO `zp_class_stats` (`id`, `id_player`, `games`) VALUES(%d, %d, 1) ON DUPLICATE KEY UPDATE `games` = `games` + 1", zp_class_zombie_get_next(id), g_UserDBId[id])
-		SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-	}
 }
 
 public zp_fw_core_cure_post(id, attacker)
@@ -896,24 +912,13 @@ public fw_HamKilled(id, attacker, shouldgib)
 			type = PLAYER_KILL_SURV
 		else
 			type = PLAYER_KILL_HUMAN
-		if (!zp_class_nemesis_get(attacker) && g_UserDBId[attacker])
-		{
-			format(g_Query, charsmax(g_Query), "INSERT INTO `zp_class_stats` (`id`, `id_player`, `kills`) VALUES(%d, %d, 1) ON DUPLICATE KEY UPDATE `kills` = `kills` + 1", zp_class_zombie_get_next(attacker), g_UserDBId[attacker])
-			SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-		}
 	}
 	else
 	{
 		if (zp_class_nemesis_get(id))
 			type = PLAYER_KILL_NEMESIS
 		else if (g_UserDBId[id])
-		{
 			type = PLAYER_KILL_ZOMBIE
-			format(g_Query, charsmax(g_Query), "INSERT INTO `zp_class_stats` (`id`, `id_player`, `death`) VALUES(%d, %d, 1) ON DUPLICATE KEY UPDATE `death` = `death` + 1", zp_class_zombie_get_next(id), g_UserDBId[id])
-			SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-		}
-			
-			
 	}
 	
 	if ((type == PLAYER_KILL_HUMAN || type == PLAYER_KILL_ZOMBIE) && g_UserDBId[attacker])
@@ -924,19 +929,30 @@ public fw_HamKilled(id, attacker, shouldgib)
 
 public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
 {
-	if (victim == attacker || !is_user_alive(attacker) || !is_user_connected(victim) || !zp_core_is_zombie(victim))
+	if (victim == attacker || !is_user_alive(attacker) || !is_user_connected(victim))
 		return
 	
 	g_graphDamage += floatround(damage)
 	
-	new victim_hp = get_user_health(victim)
-	if (victim_hp < 0)
-		victim_hp = 0
+	
 	if (get_pcvar_num(g_CvarShowHit))
-		client_print(attacker, print_center, "%L", attacker, "HP_INDICATOR", victim_hp)		
+			
 	
 	if (is_user_alive(attacker) && g_UserDBId[attacker])
 		g_TotalDamage[attacker] += floatround(damage)
+		
+	if (!get_pcvar_num(g_CvarShowHit))
+		return
+	
+	new victim_hp = get_user_health(victim)
+	new armor = get_user_armor(victim)
+	if (victim_hp < 0)
+		victim_hp = 0
+	
+	if (zp_core_is_zombie(victim) || armor <= 0)
+		client_print(attacker, print_center, "%L", attacker, "HP_INDICATOR", victim_hp)
+	else
+		client_print(attacker, print_center, "%L", attacker, "ARMOR_INDICATOR", armor)
 }
 
 public fw_CS_RoundRespawn(id)
@@ -1455,105 +1471,6 @@ public threadQueryHandler(FailState, Handle:Query, error[], err, data[], size, F
 		
 }
 
-/* Zombie Plague */
-public load_classes_from_file()
-{
-	
-	new Array:g_zclass2_realname = ArrayCreate(32, 1)
-	new Array:g_zclass2_name = ArrayCreate(32, 1)
-	new Array:g_zclass2_info = ArrayCreate(32, 1)
-	new Array:g_zclass2_hp = ArrayCreate(1, 1)
-	new Array:g_zclass2_spd = ArrayCreate(1, 1)
-	new Array:g_zclass2_grav = ArrayCreate(1, 1)
-	new Array:g_zclass2_kb = ArrayCreate(1, 1)
-	
-	new const ZP_ZOMBIECLASSES_FILE[] = "zp_zombieclasses.ini"
-	
-	new path[64]
-	new linedata[2024], key[64], value[960]
-	new file
-	
-	// Build zombie classes file path
-	get_configsdir(path, charsmax(path))
-	format(path, charsmax(path), "%s/%s", path, ZP_ZOMBIECLASSES_FILE)
-	
-	// Parse if present
-	if (file_exists(path))
-	{
-		// Open zombie classes file for reading
-		file = fopen(path, "rt")
-		
-		while (file && !feof(file))
-		{
-			// Read one line at a time
-			fgets(file, linedata, charsmax(linedata))
-			
-			// Replace newlines with a null character to prevent headaches
-			replace(linedata, charsmax(linedata), "^n", "")
-			
-			// Blank line or comment
-			if (!linedata[0] || linedata[0] == ';') continue;
-			
-			// New class starting
-			if (linedata[0] == '[')
-			{
-				// Remove first and last characters (braces)
-				linedata[strlen(linedata) - 1] = 0
-				copy(linedata, charsmax(linedata), linedata[1])
-				
-				// Store its real name for future reference
-				ArrayPushString(g_zclass2_realname, linedata)
-				continue;
-			}
-			
-			// Get key and value(s)
-			strtok(linedata, key, charsmax(key), value, charsmax(value), '=')
-			
-			// Trim spaces
-			trim(key)
-			trim(value)
-			
-			new quoted_value[1024]
-			SQL_QuoteString(g_SQL_Connection , quoted_value, 1023, value)
-			
-			if (equal(key, "NAME"))
-				ArrayPushString(g_zclass2_name, quoted_value)
-			else if (equal(key, "INFO"))
-				ArrayPushString(g_zclass2_info, quoted_value)
-			else if (equal(key, "HEALTH"))
-				ArrayPushCell(g_zclass2_hp, str_to_num(quoted_value))
-			else if (equal(key, "SPEED"))
-				ArrayPushCell(g_zclass2_spd, str_to_num(quoted_value))
-			else if (equal(key, "GRAVITY"))
-				ArrayPushCell(g_zclass2_grav, str_to_float(quoted_value))
-			else if (equal(key, "KNOCKBACK"))
-				ArrayPushCell(g_zclass2_kb, str_to_float(quoted_value))
-		}
-		if (file) fclose(file)
-	}
-	
-	new len
-	len = format(g_text, charsmax(g_text), "INSERT INTO `zp_classes` VALUES")
-	
-	new i, size = ArraySize(g_zclass2_realname)
-	
-	for (i = 0; i < size; i++)
-	{
-		len+=format(g_text[len], charsmax(g_text) - len, " (%d, '%a', '%a', %d, %d, '%2.2f', '%2.2f'),",
-		i, ArrayGetStringHandle(g_zclass2_name, i),
-		ArrayGetStringHandle(g_zclass2_info, i),
-		ArrayGetCell(g_zclass2_hp, i), ArrayGetCell(g_zclass2_spd, i),
-		Float:ArrayGetCell(g_zclass2_grav, i),
-		Float:ArrayGetCell(g_zclass2_kb, i))
-	}
-	
-	g_text[--len] = 0
-	
-	SQL_QueryAndIgnore(g_SQL_Connection, "DELETE FROM `zp_classes`")
-	SQL_QueryAndIgnore(g_SQL_Connection, g_text)
-	setc(g_text, charsmax(g_text), 0)
-}
-
 recordPlayerEvent(id, event, count = 1)
 {
 	static const eventTypes[][] = {
@@ -1574,7 +1491,7 @@ recordPlayerEvent(id, event, count = 1)
 	if (!g_UserDBId[id])
 		return
 
-	if (event <= 0 || event >= sizeof g_EventTypes)
+	if (event <= 0 || event >= sizeof eventTypes)
 	{
 		log_amx("[ZP STATS] Bad event type!")
 		return
@@ -1582,31 +1499,5 @@ recordPlayerEvent(id, event, count = 1)
 	
 	format(g_Query, charsmax(g_Query), "UPDATE `zp_players` SET `%s` = `%s` + %d WHERE `id` = %d", 
 		eventTypes[event], eventTypes[event], count, g_UserDBId[id])
-	SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-	
-}
-
-recordClassStatEvent(id, event, count = 1)
-{
-	static const eventTypes[][] = {
-		"",
-		"infect", 
-		"kills", 
-		"death", 
-		"games"
-	}
-	
-	if (!g_UserDBId[id])
-		return
-
-	if (event <= 0 || event >= sizeof g_EventTypes)
-	{
-		log_amx("[ZP STATS] Bad event type!")
-		return
-	}
-	
-	format(g_Query, charsmax(g_Query), "UPDATE `zp_players` SET `%s` = `%s` + %d WHERE `id` = %d", 
-		eventTypes[event], eventTypes[event], count, g_UserDBId[id])
-	SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
-	
+	SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)	
 }
