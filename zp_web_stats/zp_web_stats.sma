@@ -110,13 +110,14 @@
 
 #include <amxmodx>
 #include <amxmisc>
-//#include <zombieplague>
 #include <sqlx>
 #include <hamsandwich>
 #include <time>
 #include <fakemeta>
 
 #include <zp50_core>
+
+#define LIBRARY_AMMOPACKS "zp50_ammopacks"
 #include <zp50_ammopacks>
 
 #define LIBRARY_ZOMBIECLASSES "zp50_class_zombie"
@@ -125,7 +126,10 @@
 #define LIBRARY_HUMANCLASSES "zp50_class_human"
 #include <zp50_class_human>
 
+#define LIBRARY_NEMESIS "zp50_class_nemesis"
 #include <zp50_class_nemesis>
+
+#define LIBRARY_SURVIVOR "zp50_class_survivor"
 #include <zp50_class_survivor>
 
 #pragma dynamic 16384
@@ -219,6 +223,22 @@ new g_ServerString[25]
 
 new g_graphDamage, g_graphKills, g_graphInfect, g_graphConnections
 
+new bool:g_ammoEnabled
+new bool:g_classesEnabled
+new bool:g_survEnabled
+new bool:g_nemesisEnabled
+
+enum RoundRankState:
+{
+	START_UPDATING,
+	ROUND_STARTED,
+	UPDATE_COMPLETE
+}
+
+new RoundRankState:g_roundUpdateRankState
+
+new g_maxPlayers
+
 public plugin_init() 
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
@@ -254,10 +274,12 @@ public plugin_init()
 		
 	g_CvarExcludingNick = register_cvar("zp_stats_ignore_nick", "[unreg]")
 	
+	g_maxPlayers = get_maxplayers()
+	
 	register_clcmd("say", "handleSay")
 	register_clcmd("say_team", "handleSay")
 	
-	register_concmd("zp_ammo", "cmdAmmo", ADMIN_RCON, " <target> <count> - Give Ammo")	
+	register_concmd("zp_ammo", "cmdAmmo", ADMIN_RCON, " <target> <count> - Give Ammo")
 	
 	RegisterHam(Ham_Killed, "player", "fw_HamKilled")
 	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage", 1)
@@ -281,7 +303,38 @@ public plugin_cfg()
 	server_cmd("exec %s/zp_web_stats.cfg", cfgdir)
 	server_exec()
 	
-	g_CvarStartedAmmo = get_cvar_pointer("zp_starting_ammo_packs")
+	if (LibraryExists(LIBRARY_AMMOPACKS, LibType_Library))
+	{
+		g_CvarStartedAmmo = get_cvar_pointer("zp_starting_ammo_packs")
+		g_ammoEnabled = true
+	}
+	else
+		g_ammoEnabled = false
+		
+	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
+		g_classesEnabled = true
+	else
+		g_classesEnabled = false
+		
+	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
+		g_classesEnabled = true
+	else
+		g_classesEnabled = false
+		
+	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
+		g_classesEnabled = true
+	else
+		g_classesEnabled = false
+		
+	if (LibraryExists(LIBRARY_NEMESIS, LibType_Library))
+		g_nemesisEnabled = true
+	else
+		g_nemesisEnabled = false
+		
+	if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library))
+		g_survEnabled = true
+	else
+		g_survEnabled = false
 	
 	new host[32], db[32], user[32], password[32]
 	get_pcvar_string(g_CvarHost, host, 31)
@@ -329,8 +382,12 @@ public plugin_natives()
 
 public module_filter(const module[])
 {
-	if (equal(module, LIBRARY_ZOMBIECLASSES) || equal(module, LIBRARY_HUMANCLASSES))
+	if (equal(module, LIBRARY_ZOMBIECLASSES) || 
+	    equal(module, LIBRARY_HUMANCLASSES)|| 
+	    equal(module, LIBRARY_AMMOPACKS))
+	{
 		return PLUGIN_HANDLED;
+	}
 	
 	return PLUGIN_CONTINUE;
 }
@@ -357,62 +414,16 @@ public plugin_end()
 
 public event_RoundStart()
 {
-	new players[32], plNum, i, len = 0
+	if (g_roundUpdateRankState != UPDATE_COMPLETE)
+	{
+		g_roundUpdateRankState = ROUND_STARTED
+		return
+	}
 	
 	if (!get_pcvar_num(g_CvarShowRankOnRoundStart))
 		return
 	
-	
-	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
-	new min_ammo = get_pcvar_num(g_CvarMinAmmo)
-	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
-	
-	len = format(g_Query, charsmax(g_Query), "SELECT *,(SELECT COUNT(*) FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d) AS `total` FROM \
-		(SELECT `id`, (@_c := @_c + 1) AS `rank`, \
-		((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) AS `skill` ",
-		activity, min_ammo, min_online)
-	len += format(g_Query[len], charsmax(g_Query) - len, " FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d \
-		ORDER BY `skill` DESC) AS `newtable` WHERE `id` IN (", 
-		activity, min_ammo, min_online)
-	
-	get_players(players, plNum, "ch")
-	for (i = 0; i < plNum; i++)
-	{
-		if (!g_UserDBId[players[i]])
-			continue
-		len += format(g_Query[len], charsmax(g_Query) - len, " %d,",  g_UserDBId[players[i]])
-	}
-	--len
-	format(g_Query[len], charsmax(g_Query) - len, ")")
-	
-	SQL_QueryAndIgnore(g_SQL_Connection, "SET @_c = 0")
-	new Handle:query = SQL_PrepareQuery(g_SQL_Connection, g_Query)
-	SQL_Execute(query)
-	
-	new new_rank, id
-	
-	while (SQL_MoreResults(query))
-	{
-		new_rank = SQL_ReadResult(query, column("rank"))
-		id = SQL_ReadResult(query, column("id"))
-		for (i = 0; i < plNum; i++)
-		{
-			if (id == g_UserDBId[players[i]])
-			{
-				if (!g_OldRank[players[i]] || g_OldRank[players[i]] == new_rank)
-					client_print(players[i], print_chat, "%L", players[i], "ROUND_RANK", new_rank)
-				else
-				if (g_OldRank[players[i]] > new_rank)
-					client_print(players[i], print_chat, "%L", players[i], "ROUND_RANK_DOWN", g_OldRank[players[i]] - new_rank, new_rank)
-				else
-					client_print(players[i], print_chat, "%L", players[i], "ROUND_RANK_UP", new_rank - g_OldRank[players[i]], new_rank)
-				
-				g_OldRank[players[i]] = new_rank
-			}
-		}
-		
-		SQL_NextRow(query)
-	}
+	showPlayersRoundRank()
 }
 
 public showAdv()
@@ -433,7 +444,7 @@ public showAdv()
 
 public cmdAmmo(id, level, cid)
 {
-	if (!cmd_access(id, level, cid, 3))
+	if (!cmd_access(id, level, cid, 3) || !g_ammoEnabled)
 		return PLUGIN_HANDLED
 		
 	new arg1[24]
@@ -492,6 +503,8 @@ public cmdAmmo(id, level, cid)
 
 public give_ammo(id, count)
 {
+	if (!g_ammoEnabled)
+		return
 	zp_ammopacks_set(id, zp_ammopacks_get(id) + count)
 }
 
@@ -597,11 +610,11 @@ public client_putinserver(id)
 #endif
 	if (g_UserDBId[id])
 	{
-		if (get_pcvar_num(g_CvarStoreAmmo))
+		if (get_pcvar_num(g_CvarStoreAmmo) && g_ammoEnabled)
 			zp_ammopacks_set(id, g_UserAmmo[id])
 		
 		
-		if (get_pcvar_num(g_CvarStoreClass))
+		if (get_pcvar_num(g_CvarStoreClass) && g_classesEnabled)
 			zp_class_zombie_set_next(id, g_UserClass[id])
 		
 		SQL_QueryAndIgnore(g_SQL_Connection, "INSERT INTO `zp_server_players` VALUES (%d, '%s')", g_UserDBId[id], g_ServerString)
@@ -666,9 +679,9 @@ public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data
 	
 	if (g_UserPutInServer[id])
 	{
-		if (get_pcvar_num(g_CvarStoreAmmo))
+		if (get_pcvar_num(g_CvarStoreAmmo) && g_ammoEnabled)
 			zp_ammopacks_set(id, g_UserAmmo[id])
-		if (get_pcvar_num(g_CvarStoreClass))	
+		if (get_pcvar_num(g_CvarStoreClass) && g_classesEnabled)	
 			zp_class_zombie_set_next(id, g_UserClass[id])
 		SQL_QueryAndIgnore(g_SQL_Connection, "INSERT INTO `zp_server_players` VALUES (%d, '%s')", g_UserDBId[id], g_ServerString)
 	}
@@ -698,16 +711,18 @@ public client_disconnect(id)
 	new current_time = get_systime()
 	new max_len =  charsmax(g_Query)
 	
-	new ammo = zp_ammopacks_get(id), max_ammo = get_pcvar_num(g_CvarLimitAmmo)
-	if (max_ammo && ammo > max_ammo)
-		ammo = max_ammo
+	new userAmmo = g_ammoEnabled ? zp_ammopacks_get(id) : 0
+	new userClass = g_classesEnabled ? zp_class_zombie_get_next(id) : 0
+	new max_ammo = get_pcvar_num(g_CvarLimitAmmo)
+	if (userAmmo && max_ammo && userAmmo > max_ammo)
+		userAmmo = max_ammo
 		
 	format(g_Query, max_len, "UPDATE `zp_players` SET \
 		`ammo`=%d, `nick`='%s', \
 		`total_damage`=`total_damage` + %d, `last_join`=%d, \
 		`last_leave`=%d, `online` = `online` + %d, `class` = %d WHERE `id`=%d", 
-		ammo, name, 
-		g_TotalDamage[id], g_StartTime[id], current_time, (current_time - g_StartTime[id]), zp_class_zombie_get_next(id), g_UserDBId[id])
+		userAmmo, name, 
+		g_TotalDamage[id], g_StartTime[id], current_time, (current_time - g_StartTime[id]), userClass, g_UserDBId[id])
 
 	SQL_QueryAndIgnore(g_SQL_Connection, g_Query)
 	
@@ -765,7 +780,7 @@ public client_disconnect(id)
 	g_UserDBId[id] = 0
 	
 #if defined ZP_STATS_DEBUG
-	log_amx("[ZP] Stats Debug: client %s - %d disconnect, ammo %d", unquoted_name, id, ammo)
+	log_amx("[ZP] Stats Debug: client %s - %d disconnect, ammo %d", unquoted_name, id, userAmmo)
 #endif
 	
 	new Handle:query = SQL_PrepareQuery(g_SQL_Connection, "show profiles")
@@ -830,6 +845,8 @@ public zp_fw_gamemodes_end(game_mode_id)
 
 		format(g_Query, charsmax(g_Query), "UPDATE `zp_maps` SET `%s` = `%s` + 1 WHERE `map` = '%s'", g_win_team[winTeam], g_win_team[winTeam], g_mapname)
 		SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)
+		
+		updatePlayersRanks()
 		
 		if (get_pcvar_num(g_CvarShowBest))
 		{
@@ -908,14 +925,14 @@ public fw_HamKilled(id, attacker, shouldgib)
 	else
 	if (zp_core_is_zombie(attacker))
 	{
-		if (zp_class_survivor_get(id))
+		if (g_survEnabled && zp_class_survivor_get(id))
 			type = PLAYER_KILL_SURV
 		else
 			type = PLAYER_KILL_HUMAN
 	}
 	else
 	{
-		if (zp_class_nemesis_get(id))
+		if (g_nemesisEnabled && zp_class_nemesis_get(id))
 			type = PLAYER_KILL_NEMESIS
 		else if (g_UserDBId[id])
 			type = PLAYER_KILL_ZOMBIE
@@ -1062,7 +1079,7 @@ public handleSay(id)
 			show_top(id, 15)
 	}
 	else
-	if (get_pcvar_num(g_CvarAllowDonate) && equal(arg1,"/donate", 7))
+	if (g_ammoEnabled && get_pcvar_num(g_CvarAllowDonate) && equal(arg1,"/donate", 7))
 		donate(id, arg2)
 	
 }
@@ -1147,8 +1164,8 @@ public show_rank(id, unquoted_whois[])
 	new whois[1024]
 	SQL_QuoteString(g_SQL_Connection , whois, 1023, unquoted_whois)
 	
-	new total_ammo, infect
-	new death, rank, total
+	new infect, death
+	new rank, total
 	
 	new name[32]
 	
@@ -1190,7 +1207,6 @@ public show_rank(id, unquoted_whois[])
 	if (SQL_MoreResults(query))
 	{
 	
-		total_ammo = SQL_ReadResult(query, column("total_ammo"))
 		SQL_ReadResult(query, column("nick"), name, 31)
 		infect = SQL_ReadResult(query, column("infect"))
 		death = SQL_ReadResult(query, column("death"))
@@ -1368,7 +1384,7 @@ public show_top(id, top)
 	new zombiekills, humankills, death, infected, infect, total_ammo, name[32], rank
 	
 	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
-	new min_ammo = get_pcvar_num(g_CvarMinAmmo)
+	new min_ammo = g_ammoEnabled ? get_pcvar_num(g_CvarMinAmmo) : 0
 	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
 	
 	new max_len = charsmax(g_text)
@@ -1500,4 +1516,89 @@ recordPlayerEvent(id, event, count = 1)
 	format(g_Query, charsmax(g_Query), "UPDATE `zp_players` SET `%s` = `%s` + %d WHERE `id` = %d", 
 		eventTypes[event], eventTypes[event], count, g_UserDBId[id])
 	SQL_ThreadQuery(g_SQL_Tuple, "threadQueryHandler", g_Query)	
+}
+
+updatePlayersRanks()
+{
+	g_roundUpdateRankState = START_UPDATING
+	
+	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
+	new min_ammo = g_ammoEnabled ? get_pcvar_num(g_CvarMinAmmo) : 0
+	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
+	
+	
+	new len = format(g_Query, charsmax(g_Query), 
+		"SET @rank = 0;")
+	len += format(g_Query[len], charsmax(g_Query) - len, 
+		"UPDATE `zp_players` SET `rank` = 0;")
+	len += format(g_Query[len], charsmax(g_Query) - len, 
+		"UPDATE `zp_players` SET `rank` = (@rank := @rank + 1) \
+		WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d \
+		ORDER BY ((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) DESC;",
+		activity, min_ammo, min_online)
+
+	SQL_ThreadQuery(g_SQL_Tuple, "updateRankQueryHandler", g_Query)
+}
+
+public updateRankQueryHandler(FailState, Handle:Query, error[], err, data[], size, Float:querytime)
+{
+	if (g_roundUpdateRankState == ROUND_STARTED)
+		showPlayersRoundRank()
+	g_roundUpdateRankState = UPDATE_COMPLETE
+}
+
+showPlayersRoundRank()
+{
+	new players[32], plNum, i, len = 0
+	
+	len = format(g_Query[len], charsmax(g_Query), 
+		"SELECT `id`, `rank` FROM `zp_players` WHERE `id` IN (")
+	
+	get_players(players, plNum, "ch")
+	for (i = 0; i < plNum; i++)
+	{
+		if (!g_UserDBId[players[i]])
+			continue
+		len += format(g_Query[len], charsmax(g_Query) - len, " %d,",  g_UserDBId[players[i]])
+	}
+	--len
+	format(g_Query[len], charsmax(g_Query) - len, ")")
+	
+	SQL_ThreadQuery(g_SQL_Tuple, "showPlayersRoundRankHandler", g_Query)
+}
+
+public showPlayersRoundRankHandler(FailState, Handle:query, error[], err, data[], size, Float:querytime)
+{
+	new newRank, playerId, id
+	while (SQL_MoreResults(query))
+	{
+		newRank = SQL_ReadResult(query, column("rank"))
+		id = SQL_ReadResult(query, column("id"))
+		playerId = getPlayerIdFormDbId(id)
+		if (id == -1)
+			continue
+			
+		if (!g_OldRank[playerId] || g_OldRank[playerId] == newRank)
+			client_print(playerId, print_chat, "%L", playerId, "ROUND_RANK", newRank)
+		else
+		if (g_OldRank[playerId] < newRank)
+			client_print(playerId, print_chat, "%L", playerId, "ROUND_RANK_DOWN", newRank - g_OldRank[playerId] , newRank)
+		else
+			client_print(playerId, print_chat, "%L", playerId, "ROUND_RANK_UP", g_OldRank[playerId] - newRank, newRank)
+		
+		g_OldRank[playerId] = newRank
+		
+		SQL_NextRow(query)
+	}
+}
+
+public getPlayerIdFormDbId(dbId)
+{
+	new i
+	for(i = 1; i <= g_maxPlayers; i++)
+	{
+		if (g_UserDBId[i] == dbId)
+			return i
+	}
+	return -1
 }
