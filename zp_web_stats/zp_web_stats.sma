@@ -1164,61 +1164,58 @@ public show_rank(id, unquoted_whois[])
 	new whois[1024]
 	SQL_QuoteString(g_SQL_Connection , whois, 1023, unquoted_whois)
 	
-	new infect, death
-	new rank, total
-	
-	new name[32]
-	
-	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
-	new min_ammo = get_pcvar_num(g_CvarMinAmmo)
-	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
-	
 	format(g_Query, charsmax(g_Query), "SET @_c = 0")
 	SQL_QueryAndIgnore(g_SQL_Connection, g_Query)
 	
-	new Handle:query
+	new len = formatex(g_Query, charsmax(g_Query),
+		"SELECT `nick`, `rank`, `infect`, `death`, \
+			(SELECT COUNT(*) FROM `zp_players` WHERE `rank` > 0) AS `total` \
+			FROM `zp_players` WHERE ")
 	
 	if (!whois[0])
 	{
-		format(g_Query, charsmax(g_Query), "SELECT *,(SELECT COUNT(*) FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d) AS `total` FROM \
-			(SELECT *, (@_c := @_c + 1) AS `rank`, \
-			((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) AS `skill` ",
-			activity, min_ammo, min_online)
-		query = SQL_PrepareQuery(g_SQL_Connection, "%s FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d \
-			ORDER BY `skill` DESC) AS `newtable` WHERE `id`='%d';", 
-			g_Query, activity, min_ammo, min_online, g_UserDBId[id])
+		len += format(g_Query[len], charsmax(g_Query) - len, 
+			"`id` = %d", g_UserDBId[id])
 		
 	}
 	else
 	{
-		format(g_Query, charsmax(g_Query), "SELECT *,(SELECT COUNT(*) FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d) AS `total` FROM \
-			(SELECT *, (@_c := @_c + 1) AS `rank`, \
-			((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) AS `skill` ",
-			activity, min_ammo, min_online)
-		query = SQL_PrepareQuery(g_SQL_Connection, "%s FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d ORDER BY `skill` DESC) AS `newtable` \
-			WHERE `nick` LIKE '%%%s%%' OR `ip` LIKE '%%%s%%' \
-			LIMIT 1", 
-			g_Query, activity, min_ammo, min_online, whois, whois)
+		len += format(g_Query[len], charsmax(g_Query) - len, 
+			"`nick` LIKE '%%%s%%' LIMIT 1", whois)
 	
 	}
+
+	new data[2]
+	data[0] = id
+	data[1] = get_user_userid(id)
 	
-	SQL_Execute(query)
-	
+	SQL_ThreadQuery(g_SQL_Tuple, "showRankHandler", g_Query, data, 2)
+}
+
+public showRankHandler(FailState, Handle:query, error[], err, data[], size, Float:querytime)
+{
+	new id = data[0]
+	new userId = data[1]
+
+	if (!is_user_connected(id) || userId != get_user_userid(id))
+		return
+
+	new infect, death
+	new rank, total
+	new name[32]
+		
 	if (SQL_MoreResults(query))
 	{
-	
-		SQL_ReadResult(query, column("nick"), name, 31)
+		SQL_ReadResult(query, column("nick"), name, charsmax(name))
 		infect = SQL_ReadResult(query, column("infect"))
 		death = SQL_ReadResult(query, column("death"))
 		rank = SQL_ReadResult(query, column("rank"))
 		total = SQL_ReadResult(query, column("total"))
-			
-		client_print(id, print_chat, "%L", id, "RANK",  name, rank, total, infect, death, total_ammo)
-	} 
+
+		client_print(id, print_chat, "%L", id, "RANK",  name, rank, total, infect, death)
+	}
 	else
-		client_print(id, print_chat, "%L", id, "NOT_RANKED", whois)
-			
-	SQL_FreeHandle(query)
+		client_print(id, print_chat, "%L", id, "NOT_RANKED")
 }
 
 public show_stats(id, unquoted_whois[])
