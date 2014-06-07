@@ -1375,78 +1375,61 @@ public show_stats(id, unquoted_whois[])
 
 public show_top(id, top)
 {
-	new count, Handle:query
+	formatex(g_Query, charsmax(g_Query), 
+		"SELECT `nick`, `zombiekills`, `humankills`, \
+			`infect`, `death`, `infected`, `rank` \
+			FROM `zp_players` WHERE `rank` > 0 AND `rank` <= '%d' \
+			ORDER BY `rank` DESC LIMIT 15", top)
+	
+	new data[3]
+	data[0] = id
+	data[1] = get_user_userid(id)
+	
+	SQL_ThreadQuery(g_SQL_Tuple, "showTopHandler", g_Query, data, 2)
+	
+}
+
+public showTopHandler(FailState, Handle:query, error[], err, data[], size, Float:querytime)
+{
+	new id = data[0]
+	new userId = data[1]
+
+	if (!is_user_connected(id) || userId != get_user_userid(id))
+		return
+
 	new len
 	
-	new zombiekills, humankills, death, infected, infect, total_ammo, name[32], rank
-	
-	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
-	new min_ammo = g_ammoEnabled ? get_pcvar_num(g_CvarMinAmmo) : 0
-	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
+	new zombiekills, humankills, death, infected, infect, name[64], rank
 	
 	new max_len = charsmax(g_text)
-		
-	query = SQL_PrepareQuery(g_SQL_Connection, "SELECT COUNT(*) FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d", activity, min_ammo, min_online)
-	SQL_Execute(query)
-	if(SQL_MoreResults(query))
-		count = SQL_ReadResult(query, 0)
-	else
-	{
-		client_print(id, print_chat, "%L", id, "STATS_NULL")
-		return
-	}
-	
-	new lTop[32]
-	format(lTop, 31, "%L", id, "TOP")
-	
-	new lLooserTop[32]
-	format(lLooserTop, 31, "%L", id, "TOP_LOOSERS")
-	
-	new title[32]
-	if (top <= 15)
-		format(title, 31, "%s %d", lTop, top)
-	else
-	if (top < count)
-		format(title, 31, "%s %d - %d", lTop, top - 14, top)
-	else
-	{
-		top = count
-		format(title, 31, "%s", lLooserTop)
-	}
 	
 	setc(g_text, max_len, 0)
 	
-	format(g_Query, charsmax(g_Query), "SET @_c = 0")
-	SQL_QueryAndIgnore(g_SQL_Connection, g_Query)
-	
-	query = SQL_PrepareQuery(g_SQL_Connection, "SELECT `nick`, `zombiekills`, `humankills`, \
-			`infect`, `death`, `infected`, `total_ammo`, `rank` FROM \
-			(SELECT *, (@_c := @_c + 1) AS `rank`, \
-			((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) AS `skill` \
-			FROM `zp_players` WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d \
-			ORDER BY `skill` DESC) AS `newtable` WHERE `rank` <= '%d' ORDER BY `rank` DESC LIMIT 15", 
-			activity, min_ammo, min_online, top)
-			
-	SQL_Execute(query)
-	
+	new minRank = 0
+	new maxRank = 0
 	while (SQL_MoreResults(query))
 	{
-		SQL_ReadResult(query, column("nick"), name, 31)
+		SQL_ReadResult(query, column("nick"), name, charsmax(name))
 		zombiekills = SQL_ReadResult(query, column("zombiekills"))
 		humankills = SQL_ReadResult(query, column("humankills"))
 		infect = SQL_ReadResult(query, column("infect"))
 		death = SQL_ReadResult(query, column("death"))
 		infected = SQL_ReadResult(query, column("infected"))
-		total_ammo = SQL_ReadResult(query, column("total_ammo"))
 		rank = SQL_ReadResult(query, column("rank"))
 		
-		format(g_text, max_len, "<tr><td>%d<td>%s<td>%d<td>%d<td>%d<td>%d<td>%d<td>%d%s",
-			rank, name, zombiekills, humankills, infect, death, infected, total_ammo, g_text)
+		if (!minRank || minRank > rank)
+			minRank = rank
+		if (!maxRank || maxRank < rank)
+			maxRank = rank
+		
+		replace_all(name, charsmax(name), ">", "&gt;")
+		replace_all(name, charsmax(name), "<", "&lt;")
+		
+		format(g_text, max_len, "<tr><td>%d<td>%s<td>%d<td>%d<td>%d<td>%d<td>%d%s",
+			rank, name, zombiekills, humankills, infect, death, infected, g_text)
 		
 		SQL_NextRow(query)
 	}
-	
-	SQL_FreeHandle(query)
 	
 	new lInfect[32]
 	format(lInfect, 31, "%L", id, "INFECT_STATS")
@@ -1458,15 +1441,17 @@ public show_top(id, top)
 	format(lDeath, 31, "%L", id, "DEATH")
 	new lInfected[32]
 	format(lInfected, 31, "%L", id, "INFECTED")
-	new lTotalAmmo[32]
-	format(lTotalAmmo, 31, "%L", id, "TOTALAMMO")
 	new lNick[32]
 	format(lNick, 31, "%L", id, "NICK")
 	
-	len = format(g_text, max_len, "<html><head><meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" /></head><body bgcolor=#000000><table style=^"color: #FFB000^"><tr><td>%s<td>%s<td>%s<td>%s<td>%s<td>%s<td>%s<td>%s%s","#", lNick, lZKills, lHKills, lInfect, lDeath, lInfected, lTotalAmmo, g_text)
+	len = format(g_text, max_len, "<html><head><meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" /></head><body bgcolor=#000000><table style=^"color: #FFB000^"><tr><td>%s<td>%s<td>%s<td>%s<td>%s<td>%s<td>%s%s","#", lNick, lZKills, lHKills, lInfect, lDeath, lInfected, g_text)
 	format(g_text[len], max_len - len, "</table></body></html>")	
-	
+
+	new title[32]
+	format(title, 31, "%L %d - %d", id, "TOP", minRank, maxRank)
 	show_motd(id, g_text, title)
+	
+	log_amx(g_text)
 	
 	setc(g_text, max_len, 0)
 }
