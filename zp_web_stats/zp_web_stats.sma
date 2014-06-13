@@ -1400,10 +1400,12 @@ public showRankStatsHandler(FailState, Handle:query, error[], err, data[], size,
 public show_top(id, top)
 {
 	formatex(g_Query, charsmax(g_Query), 
-		"SELECT `nick`, `zombiekills`, `humankills`, \
+		"SELECT * FROM (SELECT `nick`, `zombiekills`, `humankills`, \
 			`infect`, `death`, `infected`, `rank` \
-			FROM `zp_players` WHERE `rank` > 0 AND `rank` <= '%d' \
-			ORDER BY `rank` DESC LIMIT 10", top)
+			FROM `zp_players` WHERE `rank` <= '%d' \
+			ORDER BY `rank` DESC LIMIT 10) AS `ranks` ORDER BY `rank` ASC", top)
+	
+	server_print(g_Query)
 	
 	new data[3]
 	data[0] = id
@@ -1421,8 +1423,6 @@ public showTopHandler(FailState, Handle:query, error[], err, data[], size, Float
 	if (!is_user_connected(id) || userId != get_user_userid(id))
 		return
 
-	new len
-	
 	new zombiekills, humankills, death, infected, infect, name[64], rank
 	
 	new max_len = charsmax(g_text)
@@ -1431,8 +1431,34 @@ public showTopHandler(FailState, Handle:query, error[], err, data[], size, Float
 	
 	new minRank = 0
 	new maxRank = 0
+	
+	new lInfect[32]
+	format(lInfect, 31, "%L", id, "INFECT_STATS")
+	new lZKills[32]
+	format(lZKills, 31, "%L", id, "ZKILLS_STATS")
+	new lHKills[32]
+	format(lHKills, 31, "%L", id, "HKILLS_STATS")
+	new lDeath[32]
+	format(lDeath, 31, "%L", id, "DEATH")
+	new lInfected[32]
+	format(lInfected, 31, "%L", id, "INFECTED")
+	new lNick[32]
+	format(lNick, 31, "%L", id, "NICK")
+	
+	buildMotdHeader()
+	buildMotdTitle("<h1><RANK_TITLE></h1>")
+	buildMotdTableHeader()
+	buildMotdTableCell("#")
+	buildMotdTableCell(lNick)
+	buildMotdTableCell(lZKills)
+	buildMotdTableCell(lHKills)
+	buildMotdTableCell(lInfect)
+	buildMotdTableCell(lDeath)
+	buildMotdTableCell(lInfected)
+	
 	while (SQL_MoreResults(query))
 	{
+		
 		SQL_ReadResult(query, column("nick"), name, charsmax(name))
 		zombiekills = SQL_ReadResult(query, column("zombiekills"))
 		humankills = SQL_ReadResult(query, column("humankills"))
@@ -1449,35 +1475,18 @@ public showTopHandler(FailState, Handle:query, error[], err, data[], size, Float
 		replace_all(name, charsmax(name), ">", "&gt;")
 		replace_all(name, charsmax(name), "<", "&lt;")
 		
-		format(g_text, max_len, "<tr><td>%d<td>%s<td>%d<td>%d<td>%d<td>%d<td>%d%s",
-			rank, name, zombiekills, humankills, infect, death, infected, g_text)
+		buildMotdTopRow(rank, name, zombiekills, humankills, infect, death, infected)
 		
 		SQL_NextRow(query)
 	}
 	
-	new lInfect[32]
-	format(lInfect, 31, "%L", id, "INFECT_STATS")
-	new lZKills[32]
-	format(lZKills, 31, "%L", id, "ZKILLS_STATS")
-	new lHKills[32]
-	format(lHKills, 31, "%L", id, "HKILLS_STATS")
-	new lDeath[32]
-	format(lDeath, 31, "%L", id, "DEATH")
-	new lInfected[32]
-	format(lInfected, 31, "%L", id, "INFECTED")
-	new lNick[32]
-	format(lNick, 31, "%L", id, "NICK")
-	
-	len = format(g_text, max_len, "<html><head><meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" /></head><body bgcolor=#000000><table style=^"color: #FFB000^"><tr><td>%s<td>%s<td>%s<td>%s<td>%s<td>%s<td>%s%s","#", lNick, lZKills, lHKills, lInfect, lDeath, lInfected, g_text)
-	format(g_text[len], max_len - len, "</table></body></html>")	
-
 	new title[32]
-	format(title, 31, "%L %d - %d", id, "TOP", minRank, maxRank)
+	format(title, charsmax(title), "%L %d - %d", id, "TOP", minRank, maxRank)
+	
+	replace(g_text, charsmax(g_text), "<RANK_TITLE>", title)
+	
 	show_motd(id, g_text, title)
 	
-	log_amx(g_text)
-	
-	write_file("top15.html", g_text)
 	setc(g_text, max_len, 0)
 }
 
@@ -1645,7 +1654,7 @@ buildMotdTableStartRow()
 	if (g_currMotdTableRow == 0)
 	{
 		g_currMotdLen += format(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, 
-			"<tbody><tr>")
+			"<tbody><tr class=^"odd^">")
 		g_currMotdTableRow++
 	}
 	else
@@ -1668,4 +1677,16 @@ buildMotdRankStatsRow(title[], count)
 	buildMotdTableStartRow()
 	buildMotdTableCell(title)
 	buildMotdTableCell("%d", count)
+}
+
+buildMotdTopRow(rank, name[], zombiekills, humankills, infect, death, infected)
+{
+	buildMotdTableStartRow()
+	buildMotdTableCell("%d", rank)
+	buildMotdTableCell(name)
+	buildMotdTableCell("%d", zombiekills)
+	buildMotdTableCell("%d", humankills)
+	buildMotdTableCell("%d", infect)
+	buildMotdTableCell("%d", death)
+	buildMotdTableCell("%d", infected)
 }
