@@ -207,6 +207,8 @@ new g_OldRank[33]
 
 new const g_HitsName[8][] = {"HIT_NONE", "HIT_HEAD", "HIT_CHEST", "HIT_STOMACH", "HIT_LEFTARM", "HIT_RIGHTARM", "HIT_LEFTLEG", "HIT_RIGHTLEG"}
 	
+new g_currMotdTableRow
+new g_currMotdLen
 new g_text[5096]	
 	
 new g_mapname[32]
@@ -1272,9 +1274,7 @@ public showRankStatsHandler(FailState, Handle:query, error[], err, data[], size,
 	
 	new join_str[33], leave_str[33], time_str[64]
 	
-	new name[32], ip[32], steam_id[32]
-	
-	new len
+	new name[64], ip[32], steam_id[32]
 	
 	SQL_ReadResult(query, column("nick"), name, 31)
 	SQL_ReadResult(query, column("ip"), ip, 31)
@@ -1305,8 +1305,8 @@ public showRankStatsHandler(FailState, Handle:query, error[], err, data[], size,
 	SQL_ReadResult(query, column("skill"), skill)		
 	total = SQL_ReadResult(query, column("total"))
 	
-	replace_all(name, 32, ">", "&gt;")
-	replace_all(name, 32, "<", "&lt;")
+	replace_all(name, charsmax(name), ">", "&gt;")
+	replace_all(name, charsmax(name), "<", "&lt;")
 	
 	new lStats[32]
 	format(lStats, 31, "%L", id, "STATS")
@@ -1343,51 +1343,58 @@ public showRankStatsHandler(FailState, Handle:query, error[], err, data[], size,
 	if (g_nemesisEnabled)
 		format(lNemesis, 31, "%L", id, "NEMESIS")
 		
-	new max_len = charsmax(g_text)
-	len = format(g_text, max_len, "<html><head><meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" /></head><body bgcolor=#000000>")
-	len += format(g_text[len], max_len - len, "%s %s:<table style=^"color: #FFB000^"><tr><td>%s</td><td>%d/%d</td></tr><tr><td>%s</td><td>%d</td>",
-		lStats, name, lRank, rank, total, lInfect, infect)
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr><tr><td>%s</td><td>%d</td></tr>",
-		lZKills, zombiekills, lHKills, humankills)
+	
+	buildMotdHeader()
+	buildMotdTitle("<h1>%s %s</h1>", lStats, name)
+	
+	buildMotdTableHeader()
+	buildMotdTableCell(lRank)
+	buildMotdTableCell("%d/%d", rank, total)
+	buildMotdRankStatsRow(lInfect, infect)
+	buildMotdRankStatsRow(lZKills, zombiekills)
+	buildMotdRankStatsRow(lHKills, humankills)
+	
 	
 	if (g_nemesisEnabled)
 	{
-		len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr><tr><td>%s</td><td>%d</td></tr>",
-			lNKills, nemkills, lNemesis, nemesis)
+		buildMotdRankStatsRow(lNKills, nemkills)
+		buildMotdRankStatsRow(lNemesis, nemesis)
 	}
 		
 	if (g_survEnabled)
 	{
-		len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr><tr><td>%s</td><td>%d</td></tr>",
-			lSKills, survkills, lSurvivor, survivor)
+		buildMotdRankStatsRow(lSKills, survkills)
+		buildMotdRankStatsRow(lSurvivor, survivor)
 	}
-		
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr><tr><td>%s</td><td>%d</td></tr>",
-		lDeath, death, lInfected, infected)
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr>",
-		lTotalDamage, damage)
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%d</td></tr><tr><td>%s</td><td>%d</td></tr>",
-		lFirstZombie, first_zombie, lSuicide, suicide)
+	
+	buildMotdRankStatsRow(lDeath, death)
+	buildMotdRankStatsRow(lInfected, infected)
+	buildMotdRankStatsRow(lTotalDamage, damage)
+	buildMotdRankStatsRow(lFirstZombie, first_zombie)
+	buildMotdRankStatsRow(lSuicide, suicide)
 	
 	format_time(join_str, charsmax(join_str), "%c", join) 	
-	format_time(leave_str, charsmax(leave_str), "%c", leave) 	
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%s - %s</td></tr>",
-		lLastGame, join_str, leave_str)
+	format_time(leave_str, charsmax(leave_str), "%c", leave) 
+	buildMotdTableStartRow()
+	buildMotdTableCell(lLastGame)
+	buildMotdTableCell("%s - %s", join_str, leave_str)
+	
 	
 	get_time_length(0, online, timeunit_seconds, time_str, charsmax(time_str))
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%s</td></tr>",
-		lOnline, time_str)
+	buildMotdTableStartRow()
+	buildMotdTableCell(lOnline)
+	buildMotdTableCell(time_str)
 	
-	len += format(g_text[len], max_len - len, "<tr><td>%s</td><td>%s</td></tr><tr><td>%s</td><td>%s</td></tr>",
-		"IP", ip, "Steam ID", steam_id)
-	
+	buildMotdTableStartRow()
+	buildMotdTableCell("IP")
+	buildMotdTableCell(ip)
+	buildMotdTableStartRow()
+	buildMotdTableCell("Steam ID")
+	buildMotdTableCell(steam_id)
 
-	
-	len += format(g_text[len], max_len - len, "</table></body></html>")
-		
 	show_motd(id, g_text, "Stats")
 	
-	setc(g_text, max_len, 0)
+	setc(g_text, g_currMotdLen, 0)
 }
 
 public show_top(id, top)
@@ -1396,7 +1403,7 @@ public show_top(id, top)
 		"SELECT `nick`, `zombiekills`, `humankills`, \
 			`infect`, `death`, `infected`, `rank` \
 			FROM `zp_players` WHERE `rank` > 0 AND `rank` <= '%d' \
-			ORDER BY `rank` DESC LIMIT 15", top)
+			ORDER BY `rank` DESC LIMIT 10", top)
 	
 	new data[3]
 	data[0] = id
@@ -1470,6 +1477,7 @@ public showTopHandler(FailState, Handle:query, error[], err, data[], size, Float
 	
 	log_amx(g_text)
 	
+	write_file("top15.html", g_text)
 	setc(g_text, max_len, 0)
 }
 
@@ -1600,4 +1608,64 @@ public getPlayerIdFormDbId(dbId)
 			return i
 	}
 	return -1
+}
+
+buildMotdHeader()
+{
+	new len = format(g_text, charsmax(g_text), 
+"<html>\
+<head>\
+<meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" />\
+<style>\
+body {background-color:#E6E6E6;font-family:Helvetica, sans-serif;}\
+table, td {border:2px solid #D7D7D7;border-collapse:collapse;color:#000;padding:4px;}\
+thead td {color: #AA0000;background-color: #F5F5F5;}\
+.odd td {background-color: #FFFFFF;}\
+</style>\
+</head>"
+)
+	g_currMotdLen = len
+	return len
+}
+
+buildMotdTitle(fmt[], ...)
+{
+	g_currMotdLen += vformat(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, fmt, 2)
+}
+
+buildMotdTableHeader()
+{
+	g_currMotdTableRow = 0
+	g_currMotdLen += format(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, 
+		"<table><thead><tr>")
+}
+
+buildMotdTableStartRow()
+{
+	if (g_currMotdTableRow == 0)
+	{
+		g_currMotdLen += format(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, 
+			"<tbody><tr>")
+		g_currMotdTableRow++
+	}
+	else
+	{
+		new isOdd = (g_currMotdTableRow++) % 2
+		g_currMotdLen += format(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, 
+			isOdd ? "<tr>" : "<tr class=^"odd^">")
+	}
+}
+buildMotdTableCell(fmt[], ...)
+{
+	vformat(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, fmt, 2)
+	
+	g_currMotdLen += format(g_text[g_currMotdLen], charsmax(g_text) - g_currMotdLen, 
+		"<td>%s", g_text[g_currMotdLen])
+}
+
+buildMotdRankStatsRow(title[], count)
+{
+	buildMotdTableStartRow()
+	buildMotdTableCell(title)
+	buildMotdTableCell("%d", count)
 }
