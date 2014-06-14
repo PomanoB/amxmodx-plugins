@@ -1402,7 +1402,7 @@ public show_top(id, top)
 	formatex(g_Query, charsmax(g_Query), 
 		"SELECT * FROM (SELECT `nick`, `zombiekills`, `humankills`, \
 			`infect`, `death`, `infected`, `rank` \
-			FROM `zp_players` WHERE `rank` <= '%d' \
+			FROM `zp_players` WHERE `rank` <> 0 AND `rank` <= '%d' \
 			ORDER BY `rank` DESC LIMIT 10) AS `ranks` ORDER BY `rank` ASC", top)
 	
 	server_print(g_Query)
@@ -1627,7 +1627,7 @@ buildMotdHeader()
 <meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^" />\
 <style>\
 body {background-color:#E6E6E6;font-family:Helvetica, sans-serif;}\
-table, td {border:2px solid #D7D7D7;border-collapse:collapse;color:#000;padding:4px;}\
+table, td {border:2px solid #D7D7D7;border-collapse:collapse;color:#000;padding:2px 3px;}\
 thead td {color: #AA0000;background-color: #F5F5F5;}\
 .odd td {background-color: #FFFFFF;}\
 </style>\
