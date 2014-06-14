@@ -639,7 +639,7 @@ public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data
 	if (data[1] != get_user_userid(id))
 		return
 	
-	new ammo = get_pcvar_num(g_CvarStartedAmmo)
+	new ammo = g_ammoEnabled ? get_pcvar_num(g_CvarStartedAmmo) : 0
 	
 	new server[32]
 	
