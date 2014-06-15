@@ -1,6 +1,6 @@
 /*
 *	
-*	[ZP] Web Stats 0.2.5
+*	[ZP] Web Stats 0.3.0
 *	
 *	(c) Copyright 2009 by PomanoB
 *
@@ -135,10 +135,10 @@
 #pragma dynamic 16384
 
 #define PLUGIN "[ZP] Web Stats"
-#define VERSION "0.2.5"
+#define VERSION "0.3.0"
 #define AUTHOR "PomanoB"
 
-#define ZP_STATS_DEBUG
+//#define ZP_STATS_DEBUG
  
 #define column(%1) SQL_FieldNameToNum(query, %1)
 
@@ -164,7 +164,7 @@ new g_UserIP[33][32], g_UserAuthID[33][32], g_UserName[33][32]
 new g_UserDBId[33], g_TotalDamage[33]
 new bool:g_UserPutInServer[33]
 
-new g_UserAmmo[33], g_UserClass[33]
+new g_UserAmmo[33], g_UserZClass[33], g_UserHClass[33]
 
 new Handle:g_SQL_Connection, Handle:g_SQL_Tuple
 
@@ -173,7 +173,7 @@ new g_Query[3024]
 new g_CvarStartedAmmo
 
 new g_CvarAllowHp, g_CvarAllowMe, g_CvarShowHit, g_CvarMinOnline
-new g_CvarMaxInactive, g_CvarMinAmmo, g_CvarStoreClass, g_CvarStoreAmmo
+new g_CvarMaxInactive, g_CvarStoreClass, g_CvarStoreAmmo
 new g_CvarLimitAmmo, g_CvarShowAdv, g_CvarAdvTime, g_CvarShowBest
 new g_CvarHost, g_CvarUser, g_CvarPassword, g_CvarDB, g_CvarAllowDonate
 
@@ -226,7 +226,8 @@ new g_ServerString[25]
 new g_graphDamage, g_graphKills, g_graphInfect, g_graphConnections
 
 new bool:g_ammoEnabled
-new bool:g_classesEnabled
+new bool:g_zClassesEnabled
+new bool:g_hClassesEnabled
 new bool:g_survEnabled
 new bool:g_nemesisEnabled
 
@@ -258,7 +259,6 @@ public plugin_init()
 	g_CvarAllowDonate = register_cvar("zp_stats_allow_donate", "1")
 
 	g_CvarMaxInactive = register_cvar("zp_stats_max_inactive_day", "5")
-	g_CvarMinAmmo = register_cvar("zp_stats_min_ammo", "100")
 	g_CvarMinOnline = register_cvar("zp_stats_min_online", "240")
 	
 	g_CvarStoreClass = register_cvar("zp_stats_store_class", "1")
@@ -314,19 +314,14 @@ public plugin_cfg()
 		g_ammoEnabled = false
 		
 	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
-		g_classesEnabled = true
+		g_zClassesEnabled = true
 	else
-		g_classesEnabled = false
+		g_zClassesEnabled = false
 		
-	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
-		g_classesEnabled = true
+	if (LibraryExists(LIBRARY_HUMANCLASSES, LibType_Library))
+		g_hClassesEnabled = true
 	else
-		g_classesEnabled = false
-		
-	if (LibraryExists(LIBRARY_ZOMBIECLASSES, LibType_Library))
-		g_classesEnabled = true
-	else
-		g_classesEnabled = false
+		g_hClassesEnabled = false
 		
 	if (LibraryExists(LIBRARY_NEMESIS, LibType_Library))
 		g_nemesisEnabled = true
@@ -386,7 +381,9 @@ public module_filter(const module[])
 {
 	if (equal(module, LIBRARY_ZOMBIECLASSES) || 
 	    equal(module, LIBRARY_HUMANCLASSES)|| 
-	    equal(module, LIBRARY_AMMOPACKS))
+	    equal(module, LIBRARY_AMMOPACKS)|| 
+	    equal(module, LIBRARY_NEMESIS)|| 
+	    equal(module, LIBRARY_SURVIVOR))
 	{
 		return PLUGIN_HANDLED;
 	}
@@ -522,7 +519,8 @@ public client_authorized(id)
 	
 	g_UserDBId[id] = 0
 	g_UserAmmo[id] = 0
-	g_UserClass[id] = 0
+	g_UserZClass[id] = 0
+	g_UserHClass[id] = 0
 	
 	g_TotalDamage[id] = 0
 				
@@ -586,7 +584,7 @@ public client_authorized(id)
 	}
 	
 	
-	format(g_Query,charsmax(g_Query),"SELECT `id`, `ammo`, `class`, `server` FROM `zp_players` \
+	format(g_Query,charsmax(g_Query),"SELECT `id`, `ammo`, `zclass`, `hclass`, `server` FROM `zp_players` \
 			LEFT JOIN `zp_server_players` \
 			ON `zp_server_players`.`id_player` = `zp_players`.`id`\
 			WHERE `%s`='%s' %s", whereis, uniqid, condition)
@@ -614,10 +612,14 @@ public client_putinserver(id)
 	{
 		if (get_pcvar_num(g_CvarStoreAmmo) && g_ammoEnabled)
 			zp_ammopacks_set(id, g_UserAmmo[id])
-		
-		
-		if (get_pcvar_num(g_CvarStoreClass) && g_classesEnabled)
-			zp_class_zombie_set_next(id, g_UserClass[id])
+				
+		if (get_pcvar_num(g_CvarStoreClass))
+		{
+			if (g_zClassesEnabled)
+				zp_class_zombie_set_next(id, g_UserZClass[id])
+			if (g_hClassesEnabled)
+				zp_class_human_set_next(id, g_UserHClass[id])
+		}
 		
 		SQL_QueryAndIgnore(g_SQL_Connection, "INSERT INTO `zp_server_players` VALUES (%d, '%s')", g_UserDBId[id], g_ServerString)
 		
@@ -652,23 +654,25 @@ public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data
 #if defined ZP_STATS_DEBUG
 			log_amx("[ZP] Stats Debug: client %d already in the server %s!", id, server)
 #endif			
-			g_UserClass[id] = 0
+			g_UserZClass[id] = 0
+			g_UserHClass[id] = 0
 			return
 		}
 		
 		ammo = SQL_ReadResult(query, column("ammo"))
 		g_UserDBId[id] = SQL_ReadResult(query, column("id"))
-		g_UserClass[id] = SQL_ReadResult(query, column("class"))
+		g_UserZClass[id] = SQL_ReadResult(query, column("zclass"))
+		g_UserHClass[id] = SQL_ReadResult(query, column("hclass"))
 		
 	}
 	else
 	{
 		format(g_Query,charsmax(g_Query),"INSERT INTO `zp_players` SET\
-					`ammo`=%d, `total_ammo`=%d, \
+					`ammo`=%d, \
 					`nick`='%s',\
 					`ip`='%s', `steam_id`='%s', `last_join` = %d;",
-					ammo, ammo,
-					g_UserName[id], g_UserIP[id], g_UserAuthID[id], g_StartTime[id])
+					ammo, g_UserName[id], g_UserIP[id], 
+					g_UserAuthID[id], g_StartTime[id])
 
 		new Handle:queryyy = SQL_PrepareQuery(g_SQL_Connection, g_Query)
 		SQL_Execute(queryyy)
@@ -683,8 +687,13 @@ public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data
 	{
 		if (get_pcvar_num(g_CvarStoreAmmo) && g_ammoEnabled)
 			zp_ammopacks_set(id, g_UserAmmo[id])
-		if (get_pcvar_num(g_CvarStoreClass) && g_classesEnabled)	
-			zp_class_zombie_set_next(id, g_UserClass[id])
+		if (get_pcvar_num(g_CvarStoreClass))
+		{
+			if (g_zClassesEnabled)
+				zp_class_zombie_set_next(id, g_UserZClass[id])
+			if (g_hClassesEnabled)
+				zp_class_human_set_next(id, g_UserHClass[id])
+		}
 		SQL_QueryAndIgnore(g_SQL_Connection, "INSERT INTO `zp_server_players` VALUES (%d, '%s')", g_UserDBId[id], g_ServerString)
 	}
 	
@@ -700,9 +709,9 @@ public client_disconnect(id)
 	
 	if (!g_UserDBId[id] || !g_UserPutInServer[id])	
 		return
-	
-	
+#if defined ZP_STATS_DEBUG
 	SQL_QueryAndIgnore(g_SQL_Connection, "set profiling=1")
+#endif
 	
 	new unquoted_name[32], name[32]
 	get_user_name(id,unquoted_name,31)
@@ -714,7 +723,9 @@ public client_disconnect(id)
 	new max_len =  charsmax(g_Query)
 	
 	new userAmmo = g_ammoEnabled ? zp_ammopacks_get(id) : 0
-	new userClass = g_classesEnabled ? zp_class_zombie_get_next(id) : 0
+	new userZClass = g_zClassesEnabled ? zp_class_zombie_get_next(id) : 0
+	new userHClass = g_hClassesEnabled ? zp_class_human_get_next(id) : 0
+
 	new max_ammo = get_pcvar_num(g_CvarLimitAmmo)
 	if (userAmmo && max_ammo && userAmmo > max_ammo)
 		userAmmo = max_ammo
@@ -722,9 +733,12 @@ public client_disconnect(id)
 	format(g_Query, max_len, "UPDATE `zp_players` SET \
 		`ammo`=%d, `nick`='%s', \
 		`total_damage`=`total_damage` + %d, `last_join`=%d, \
-		`last_leave`=%d, `online` = `online` + %d, `class` = %d WHERE `id`=%d", 
+		`last_leave`=%d, `online` = `online` + %d, `zclass` = %d, `hclass` = %d \
+		WHERE `id`=%d", 
 		userAmmo, name, 
-		g_TotalDamage[id], g_StartTime[id], current_time, (current_time - g_StartTime[id]), userClass, g_UserDBId[id])
+		g_TotalDamage[id], g_StartTime[id], 
+		current_time, (current_time - g_StartTime[id]), 
+		userZClass, userHClass, g_UserDBId[id])
 
 	SQL_QueryAndIgnore(g_SQL_Connection, g_Query)
 	
@@ -1539,7 +1553,6 @@ updatePlayersRanks()
 	g_roundUpdateRankState = START_UPDATING
 	
 	new activity = get_systime() - get_pcvar_num(g_CvarMaxInactive) * 24 * 60 * 60
-	new min_ammo = g_ammoEnabled ? get_pcvar_num(g_CvarMinAmmo) : 0
 	new min_online = get_pcvar_num(g_CvarMinOnline) * 60
 	
 	
@@ -1549,9 +1562,9 @@ updatePlayersRanks()
 		"UPDATE `zp_players` SET `rank` = 0;")
 	len += format(g_Query[len], charsmax(g_Query) - len, 
 		"UPDATE `zp_players` SET `rank` = (@rank := @rank + 1) \
-		WHERE `last_join` > %d AND `total_ammo` >= %d AND `online` >= %d \
+		WHERE `last_join` > %d AND `online` >= %d \
 		ORDER BY ((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) DESC;",
-		activity, min_ammo, min_online)
+		activity, min_online)
 
 	SQL_ThreadQuery(g_SQL_Tuple, "updateRankQueryHandler", g_Query)
 }
