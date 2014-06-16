@@ -967,11 +967,7 @@ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
 		return
 	
 	g_graphDamage += floatround(damage)
-	
-	
-	if (get_pcvar_num(g_CvarShowHit))
-			
-	
+
 	if (is_user_alive(attacker) && g_UserDBId[attacker])
 		g_TotalDamage[attacker] += floatround(damage)
 		
@@ -1293,7 +1289,7 @@ public showRankStatsHandler(FailState, Handle:query, error[], err, data[], size,
 	SQL_ReadResult(query, column("nick"), name, 31)
 	SQL_ReadResult(query, column("ip"), ip, 31)
 	SQL_ReadResult(query, column("steam_id"), steam_id, 31)
-	damage = SQL_ReadResult(query, column("total_damage"))
+	damage = SQL_ReadResult(query, column("total_damage")) + g_TotalDamage[id]
 	join = SQL_ReadResult(query, column("last_join"))
 	leave = SQL_ReadResult(query, column("last_leave"))
 	first_zombie = SQL_ReadResult(query, column("first_zombie"))
