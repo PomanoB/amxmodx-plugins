@@ -139,6 +139,9 @@
 #define AUTHOR "PomanoB"
 
 //#define ZP_STATS_DEBUG
+
+// bigger - greater
+#define SKILL_FORMULA "(3 * (`zombiekills` + `humankills`) + 4 * (`nemkills` + `survkills`) + `infect`) - (4 * `suicide` + `death` + `infected`)"
  
 #define column(%1) SQL_FieldNameToNum(query, %1)
 
@@ -1216,7 +1219,7 @@ public showRankHandler(FailState, Handle:query, error[], err, data[], size, Floa
 	new infect, death
 	new rank, total
 	new name[32]
-		
+
 	if (SQL_MoreResults(query))
 	{
 		SQL_ReadResult(query, column("nick"), name, charsmax(name))
@@ -1239,8 +1242,8 @@ public show_stats(id, unquoted_whois[])
 	new len = formatex(g_Query, charsmax(g_Query), 
 		"SELECT *, \
 			(SELECT COUNT(*) FROM `zp_players` WHERE `rank` > 0) AS `total`, \
-			((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) AS `skill` \
-		FROM `zp_players` WHERE ")
+			(%s) AS `skill` \
+		FROM `zp_players` WHERE ", SKILL_FORMULA)
 
 	if (!whois[0])
 	{
@@ -1559,8 +1562,8 @@ updatePlayersRanks()
 	len += format(g_Query[len], charsmax(g_Query) - len, 
 		"UPDATE `zp_players` SET `rank` = (@rank := @rank + 1) \
 		WHERE `last_join` > %d AND `online` >= %d \
-		ORDER BY ((`infect` + `zombiekills` + `humankills` + `nemkills`*4 + `survkills`*4)/(`suicide`*4+`death`+`infected` + 1)) DESC;",
-		activity, min_online)
+		ORDER BY (%s) DESC;",
+		activity, min_online, SKILL_FORMULA)
 
 	SQL_ThreadQuery(g_SQL_Tuple, "updateRankQueryHandler", g_Query)
 }
