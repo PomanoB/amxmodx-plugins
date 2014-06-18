@@ -618,6 +618,12 @@ public client_putinserver(id)
 				
 		if (get_pcvar_num(g_CvarStoreClass))
 		{
+			// If zp_web_stats before Zobmie Plague, need start task to set classes
+			new data[2]
+			data[0] = id
+			data[1] = get_user_userid(id)
+			set_task(0.1, "setStoredUserClasses", id, data, 2)
+
 			if (g_zClassesEnabled)
 				zp_class_zombie_set_next(id, g_UserZClass[id])
 			if (g_hClassesEnabled)
@@ -629,6 +635,18 @@ public client_putinserver(id)
 	}
 	
 	g_UserPutInServer[id] = true
+}
+
+public setStoredUserClasses(data[])
+{
+	new id = data[0]
+	new userId = data[1]
+	if (!is_user_connected(id) || get_user_userid(id) != userId)
+		return
+	if (g_zClassesEnabled)
+		zp_class_zombie_set_next(id, g_UserZClass[id])
+	if (g_hClassesEnabled)
+		zp_class_human_set_next(id, g_UserHClass[id])
 }
 
 public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data[], size, Float:querytime)
@@ -709,7 +727,8 @@ public ClientAuthorized_QueryHandler(FailState, Handle:query, error[], err, data
 
 public client_disconnect(id)
 {
-	
+	remove_task(id)
+
 	if (!g_UserDBId[id] || !g_UserPutInServer[id])	
 		return
 #if defined ZP_STATS_DEBUG
