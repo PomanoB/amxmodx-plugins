@@ -13,39 +13,6 @@ SET SQL_MODE="NO_AUTO_VALUE_ON_ZERO";
 -- --------------------------------------------------------
 
 --
--- Структура таблицы `zp_classes`
---
-
-CREATE TABLE IF NOT EXISTS `zp_classes` (
-  `id` int(10) unsigned NOT NULL,
-  `name` varchar(64) NOT NULL,
-  `info` varchar(64) NOT NULL,
-  `hp` int(10) unsigned NOT NULL,
-  `speed` int(10) unsigned NOT NULL,
-  `grav` decimal(5,2) NOT NULL,
-  `kb` decimal(5,2) NOT NULL,
-  UNIQUE KEY `id` (`id`)
-) CHARSET=utf8;
-
--- --------------------------------------------------------
-
---
--- Структура таблицы `zp_class_stats`
---
-
-CREATE TABLE IF NOT EXISTS `zp_class_stats` (
-  `id` int(10) unsigned NOT NULL,
-  `id_player` int(10) unsigned NOT NULL,
-  `infect` int(10) unsigned NOT NULL DEFAULT '0',
-  `kills` int(10) unsigned NOT NULL DEFAULT '0',
-  `death` int(10) unsigned NOT NULL DEFAULT '0',
-  `games` int(11) NOT NULL DEFAULT '0',
-  PRIMARY KEY (`id`,`id_player`)
-) DEFAULT CHARSET=utf8;
-
--- --------------------------------------------------------
-
---
 -- Структура таблицы `zp_graph`
 --
 
@@ -156,16 +123,6 @@ CREATE TABLE IF NOT EXISTS `zp_weapons` (
 ) DEFAULT CHARSET=utf8 ;
 
 -- --------------------------------------------------------
-
---
--- Структура для представления `zp_class_sum_stats`
---
-
--- --------------------------------------------------------
-
-CREATE VIEW `zp_class_sum_stats` AS (select `zp_class_stats`.`id` AS `id`,sum(`zp_class_stats`.`infect`) AS `infect`,sum(`zp_class_stats`.`kills`) AS `kills`,sum(`zp_class_stats`.`death`) AS `death`,sum(`zp_class_stats`.`games`) AS `games` from `zp_class_stats` group by `zp_class_stats`.`id`);
-
-
 
 
 --
